@@ -1,0 +1,396 @@
+---
+import LayoutAdmin from "../../../layouts/LayoutAdmin.astro";
+import Repeteur from "../../../components/Repeteur.astro";
+import { ETATS, STATUTS, SELECTION_PRODUIT, versProduit, type Produit } from "../../../lib/produits";
+import { urlBasePhotos } from "../../../lib/supabase";
+import {
+  texte,
+  entier,
+  slugifier,
+  lireRepeteur,
+  securiserRetour,
+  messageErreur,
+  CHEMIN_PHOTO,
+} from "../../../lib/admin";
+
+const supabase = Astro.locals.supabase;
+const id = Astro.params.id ?? "";
+const nouveau = id === "nouveau";
+
+const { data: categories } = await supabase.from("categories").select("id, nom").order("ordre").order("nom");
+
+let produit: Produit | null = null;
+if (!nouveau) {
+  const { data } = await supabase.from("produits").select(SELECTION_PRODUIT).eq("id", id).maybeSingle();
+  if (!data) return Astro.rewrite("/404");
+  produit = versProduit(data);
+}
+
+// Valeurs affichées dans le formulaire (remplacées par la saisie en cas d'erreur)
+let v = {
+  nom: produit?.nom ?? "",
+  marque: produit?.marque ?? "",
+  categorie_id: produit?.categorieId ?? categories?.[0]?.id ?? "",
+  etat: produit?.etat ?? "occasion-grade-a",
+  prix: produit ? String(produit.prix) : "",
+  stock: produit ? String(produit.stock) : "1",
+  statut: produit?.statut ?? "disponible",
+  visible: produit?.visible ?? true,
+  resume: produit?.resume ?? "",
+  description: produit?.description ?? "",
+  reference: produit?.reference ?? "",
+  slug: produit?.slug ?? "",
+  points: (produit?.pointsForts ?? []).map((texte) => ({ texte })),
+  carac: Object.entries(produit?.caracteristiques ?? {}).map(([nom, valeur]) => ({ nom, valeur })),
+  images: produit?.imagesChemins ?? [],
+};
+
+let erreur = "";
+const succes = Astro.url.searchParams.get("ok") ? "Produit enregistré." : "";
+
+if (Astro.request.method === "POST") {
+  const f = await Astro.request.formData();
+  const action = texte(f, "action") || "enregistrer";
+  const retour = securiserRetour(texte(f, "retour"), "/admin");
+
+  // --- Actions rapides (liste ou fiche) ---
+  const rapides: Record<string, Record<string, unknown>> = {
+    vendu: { statut: "vendu", stock: 0 },
+    rupture: { statut: "rupture", stock: 0 },
+    remettre: { statut: "disponible", stock: Math.max(produit?.stock ?? 0, 1) },
+    masquer: { visible: false },
+    afficher: { visible: true },
+  };
+  if (!nouveau && produit && action in rapides) {
+    const { error } = await supabase.from("produits").update(rapides[action]).eq("id", id);
+    if (error) erreur = messageErreur(error);
+    else return Astro.redirect(retour);
+  }
+
+  // --- Suppression ---
+  else if (!nouveau && produit && action === "supprimer") {
+    const { error } = await supabase.from("produits").delete().eq("id", id);
+    if (error) erreur = messageErreur(error);
+    else {
+      if (produit.imagesChemins.length) await supabase.storage.from("produits").remove(produit.imagesChemins);
+      return Astro.redirect("/admin?supprime=1");
+    }
+  }
+
+  // --- Enregistrement ---
+  else if (action === "enregistrer") {
+    const statutSaisi = texte(f, "statut");
+    const etatSaisi = texte(f, "etat");
+    const images = f.getAll("images").map(String).filter((c) => CHEMIN_PHOTO.test(c)).slice(0, 8);
+    const points = lireRepeteur(f, "points", ["texte"]).map((l) => l.texte);
+    const carac = lireRepeteur(f, "carac", ["nom", "valeur"]);
+
+    v = {
+      nom: texte(f, "nom"),
+      marque: texte(f, "marque"),
+      categorie_id: texte(f, "categorie_id"),
+      etat: etatSaisi in ETATS ? (etatSaisi as keyof typeof ETATS) : "occasion-grade-a",
+      prix: String(entier(f, "prix") || ""),
+      stock: String(Math.max(0, entier(f, "stock"))),
+      statut: statutSaisi in STATUTS ? (statutSaisi as keyof typeof STATUTS) : "disponible",
+      visible: f.get("visible") === "on",
+      resume: texte(f, "resume"),
+      description: texte(f, "description"),
+      reference: texte(f, "reference"),
+      slug: texte(f, "slug"),
+      points: points.map((texte) => ({ texte })),
+      carac: carac.map((l) => ({ nom: l.nom, valeur: l.valeur })),
+      images,
+    };
+
+    const prix = Number(v.prix);
+    if (!v.nom) erreur = "Le nom du produit est obligatoire.";
+    else if (!(prix > 0)) erreur = "Indiquez un prix supérieur à 0.";
+    else if (!v.categorie_id) erreur = "Choisissez une catégorie.";
+    else {
+      const ligne = {
+        nom: v.nom,
+        marque: v.marque,
+        categorie_id: v.categorie_id,
+        etat: v.etat,
+        prix,
+        stock: Number(v.stock),
+        statut: v.statut,
+        visible: v.visible,
+        resume: v.resume,
+        description: v.description,
+        points_forts: points,
+        caracteristiques: Object.fromEntries(carac.map((l) => [l.nom, l.valeur])),
+        images,
+        reference: v.reference || `REF-${Date.now().toString(36).toUpperCase()}`,
+        slug: slugifier(v.slug || produit?.slug || v.nom),
+      };
+
+      if (nouveau) {
+        const { data, error } = await supabase.from("produits").insert(ligne).select("id").single();
+        if (error) erreur = messageErreur(error);
+        else return Astro.redirect(`/admin/produits/${data.id}?ok=1`);
+      } else {
+        const { error } = await supabase.from("produits").update(ligne).eq("id", id);
+        if (error) erreur = messageErreur(error);
+        else {
+          const retirees = (produit?.imagesChemins ?? []).filter((c) => !images.includes(c));
+          if (retirees.length) await supabase.storage.from("produits").remove(retirees);
+          return Astro.redirect(`/admin/produits/${id}?ok=1`);
+        }
+      }
+    }
+  }
+}
+
+const retourListe = "/admin";
+const base = urlBasePhotos();
+---
+
+<LayoutAdmin titre={nouveau ? "Nouveau produit" : v.nom}>
+  <a href="/admin" class="text-sm font-bold text-marque underline underline-offset-4">← Retour aux produits</a>
+  <h1 class="mt-2 font-titre text-3xl font-extrabold">{nouveau ? "Ajouter un produit" : v.nom}</h1>
+
+  {succes && <p role="status" class="mt-4 rounded-lg bg-emerald-50 p-3 font-semibold text-emerald-800">{succes}</p>}
+  {erreur && <p role="alert" class="mt-4 rounded-lg bg-red-50 p-3 font-semibold text-red-800">{erreur}</p>}
+
+  <form method="post" class="mt-6 space-y-6">
+    <input type="hidden" name="retour" value={retourListe} />
+
+    <!-- Photos -->
+    <section class="carte" aria-labelledby="t-photos">
+      <h2 id="t-photos" class="font-titre text-xl font-bold">Photos</h2>
+      <p class="aide">La première photo est celle qui s'affiche dans le catalogue. Jusqu'à 8 photos, réduites automatiquement avant l'envoi.</p>
+      <div id="photos" data-base={base} data-max="8" class="mt-4">
+        <ul data-liste class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {
+            v.images.map((chemin) => (
+              <li class="rounded-xl border border-encre/10 bg-papier p-2">
+                <img src={base + chemin} alt="" class="aspect-square w-full rounded-lg object-cover" />
+                <input type="hidden" name="images" value={chemin} />
+                <p data-badge class="mt-2 text-center text-xs font-bold text-marque">Photo principale</p>
+                <div class="mt-2 grid gap-1">
+                  <button type="button" data-principale class="btn btn-clair px-2 py-1 text-sm">Mettre en premier</button>
+                  <button type="button" data-retirer-photo class="btn btn-danger px-2 py-1 text-sm">Retirer</button>
+                </div>
+              </li>
+            ))
+          }
+        </ul>
+        <label class="btn btn-clair mt-4">
+          + Ajouter des photos
+          <input type="file" accept="image/*" multiple class="sr-only" data-choix />
+        </label>
+        <p data-etat role="status" class="mt-2 text-sm font-semibold"></p>
+      </div>
+    </section>
+
+    <!-- Informations -->
+    <section class="carte space-y-4" aria-labelledby="t-infos">
+      <h2 id="t-infos" class="font-titre text-xl font-bold">Informations</h2>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div class="sm:col-span-2">
+          <label class="etiquette" for="nom">Nom du produit *</label>
+          <input id="nom" name="nom" required value={v.nom} class="champ" placeholder="Dell Latitude 5400" />
+        </div>
+        <div>
+          <label class="etiquette" for="marque">Marque</label>
+          <input id="marque" name="marque" value={v.marque} class="champ" placeholder="Dell" />
+        </div>
+        <div>
+          <label class="etiquette" for="categorie_id">Catégorie *</label>
+          <select id="categorie_id" name="categorie_id" required class="champ">
+            {(categories ?? []).map((c) => <option value={c.id} selected={c.id === v.categorie_id}>{c.nom}</option>)}
+          </select>
+        </div>
+        <div>
+          <label class="etiquette" for="etat">État *</label>
+          <select id="etat" name="etat" class="champ">
+            {Object.entries(ETATS).map(([cle, e]) => <option value={cle} selected={cle === v.etat}>{e.libelle}</option>)}
+          </select>
+        </div>
+        <div>
+          <label class="etiquette" for="prix">Prix cash (FCFA) *</label>
+          <input id="prix" name="prix" required inputmode="numeric" value={v.prix} class="champ" placeholder="235000" />
+        </div>
+        <div>
+          <label class="etiquette" for="stock">Quantité en stock</label>
+          <input id="stock" name="stock" inputmode="numeric" value={v.stock} class="champ" />
+        </div>
+        <div>
+          <label class="etiquette" for="statut">Statut</label>
+          <select id="statut" name="statut" class="champ">
+            {Object.entries(STATUTS).map(([cle, libelle]) => <option value={cle} selected={cle === v.statut}>{libelle}</option>)}
+          </select>
+          <p class="aide">« Vendu » et « En rupture » retirent le produit du catalogue ; sa page reste accessible.</p>
+        </div>
+        <div class="sm:col-span-2">
+          <label class="etiquette" for="resume">Résumé (une ligne dans le catalogue)</label>
+          <input id="resume" name="resume" value={v.resume} class="champ" placeholder="14 pouces Full HD • Core i5 • 8 Go • SSD 256 Go" />
+        </div>
+        <div class="sm:col-span-2">
+          <label class="etiquette" for="description">Description</label>
+          <textarea id="description" name="description" rows="4" class="champ">{v.description}</textarea>
+        </div>
+      </div>
+      <label class="flex items-center gap-3 font-bold">
+        <input type="checkbox" name="visible" checked={v.visible} class="h-5 w-5" />
+        Afficher ce produit sur le site
+      </label>
+    </section>
+
+    <section class="carte" aria-labelledby="t-points">
+      <h2 id="t-points" class="font-titre text-xl font-bold">Points forts</h2>
+      <p class="aide mb-3">Trois ou quatre phrases courtes qui rassurent l'acheteur.</p>
+      <Repeteur groupe="points" champs={[{ cle: "texte", libelle: "Point fort" }]} lignes={v.points} ajout="Ajouter un point fort" />
+    </section>
+
+    <section class="carte" aria-labelledby="t-fiche">
+      <h2 id="t-fiche" class="font-titre text-xl font-bold">Fiche technique</h2>
+      <p class="aide mb-3">Exemple : « Processeur » et « Intel Core i5-8365U ».</p>
+      <Repeteur
+        groupe="carac"
+        champs={[{ cle: "nom", libelle: "Caractéristique" }, { cle: "valeur", libelle: "Valeur" }]}
+        lignes={v.carac}
+        ajout="Ajouter une caractéristique"
+      />
+    </section>
+
+    <section class="carte" aria-labelledby="t-avance">
+      <h2 id="t-avance" class="font-titre text-xl font-bold">Options avancées</h2>
+      <div class="mt-3 grid gap-4 sm:grid-cols-2">
+        <div>
+          <label class="etiquette" for="reference">Référence interne</label>
+          <input id="reference" name="reference" value={v.reference} class="champ" placeholder="Générée automatiquement" />
+        </div>
+        <div>
+          <label class="etiquette" for="slug">Adresse web du produit</label>
+          <input id="slug" name="slug" value={v.slug} class="champ" placeholder="Générée à partir du nom" />
+          <p class="aide">Laissez vide : la modifier casse les anciens liens partagés.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="sticky bottom-0 -mx-4 flex gap-3 border-t border-encre/10 bg-papier/95 px-4 py-3 backdrop-blur">
+      <button name="action" value="enregistrer" data-enregistrer class="btn btn-marque flex-1 sm:flex-none">Enregistrer</button>
+      <a href="/admin" class="btn btn-clair">Annuler</a>
+    </div>
+  </form>
+
+  {
+    produit && (
+      <div class="mt-8 grid gap-4 md:grid-cols-2">
+        <form method="post" class="carte">
+          <input type="hidden" name="retour" value={`/admin/produits/${produit.id}`} />
+          <h2 class="font-titre text-lg font-bold">Actions rapides</h2>
+          <div class="mt-3 flex flex-wrap gap-2">
+            {produit.statut === "disponible" ? (
+              <>
+                <button name="action" value="vendu" class="btn btn-clair">Marquer vendu</button>
+                <button name="action" value="rupture" class="btn btn-clair">Marquer en rupture</button>
+              </>
+            ) : (
+              <button name="action" value="remettre" class="btn btn-clair">Remettre en vente</button>
+            )}
+            <button name="action" value={produit.visible ? "masquer" : "afficher"} class="btn btn-clair">
+              {produit.visible ? "Masquer du site" : "Afficher sur le site"}
+            </button>
+          </div>
+        </form>
+        <form method="post" class="carte" onsubmit="return confirm('Supprimer définitivement ce produit et ses photos ?')">
+          <h2 class="font-titre text-lg font-bold">Supprimer</h2>
+          <p class="aide">Pour garder le produit sans l'afficher, utilisez plutôt « Masquer du site ».</p>
+          <button name="action" value="supprimer" class="btn btn-danger mt-3">Supprimer ce produit</button>
+        </form>
+      </div>
+    )
+  }
+</LayoutAdmin>
+
+<script>
+  const zone = document.getElementById("photos");
+  if (zone) {
+    const liste = zone.querySelector<HTMLElement>("[data-liste]")!;
+    const choix = zone.querySelector<HTMLInputElement>("[data-choix]")!;
+    const etat = zone.querySelector<HTMLElement>("[data-etat]")!;
+    const base = zone.dataset.base ?? "";
+    const max = Number(zone.dataset.max ?? 8);
+    const boutonsEnvoi = document.querySelectorAll<HTMLButtonElement>("[data-enregistrer]");
+
+    const actualiser = () =>
+      liste.querySelectorAll<HTMLElement>("li").forEach((li, i) => {
+        const badge = li.querySelector<HTMLElement>("[data-badge]");
+        if (badge) badge.hidden = i !== 0;
+      });
+
+    liste.addEventListener("click", (e) => {
+      const t = e.target as HTMLElement;
+      const li = t.closest("li");
+      if (!li) return;
+      if (t.closest("[data-principale]")) liste.prepend(li);
+      if (t.closest("[data-retirer-photo]")) li.remove();
+      actualiser();
+    });
+
+    function ajouter(chemin: string) {
+      const li = document.createElement("li");
+      li.className = "rounded-xl border border-encre/10 bg-papier p-2";
+      li.innerHTML =
+        '<img alt="" class="aspect-square w-full rounded-lg object-cover">' +
+        '<input type="hidden" name="images">' +
+        '<p data-badge class="mt-2 text-center text-xs font-bold text-marque">Photo principale</p>' +
+        '<div class="mt-2 grid gap-1">' +
+        '<button type="button" data-principale class="btn btn-clair px-2 py-1 text-sm">Mettre en premier</button>' +
+        '<button type="button" data-retirer-photo class="btn btn-danger px-2 py-1 text-sm">Retirer</button></div>';
+      li.querySelector("img")!.src = base + chemin;
+      li.querySelector<HTMLInputElement>("input")!.value = chemin;
+      liste.append(li);
+      actualiser();
+    }
+
+    // Réduit la photo (1600 px max, JPEG) avant l'envoi : rapide même avec une connexion mobile
+    async function reduire(fichier: File): Promise<Blob> {
+      const image = await createImageBitmap(fichier);
+      const ratio = Math.min(1, 1600 / Math.max(image.width, image.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(image.width * ratio);
+      canvas.height = Math.round(image.height * ratio);
+      canvas.getContext("2d")!.drawImage(image, 0, 0, canvas.width, canvas.height);
+      return new Promise((ok, ko) =>
+        canvas.toBlob((b) => (b ? ok(b) : ko(new Error("compression"))), "image/jpeg", 0.82),
+      );
+    }
+
+    choix.addEventListener("change", async () => {
+      const fichiers = Array.from(choix.files ?? []);
+      choix.value = "";
+      boutonsEnvoi.forEach((b) => (b.disabled = true));
+      let envoyees = 0;
+      const erreurs: string[] = [];
+      for (const fichier of fichiers) {
+        if (liste.children.length >= max) {
+          erreurs.push(`Maximum ${max} photos.`);
+          break;
+        }
+        etat.textContent = `Envoi de la photo ${envoyees + 1} sur ${fichiers.length}…`;
+        try {
+          const donnees = new FormData();
+          donnees.append("fichier", await reduire(fichier), "photo.jpg");
+          const reponse = await fetch("/admin/api/upload", { method: "POST", body: donnees });
+          const json = await reponse.json();
+          if (!reponse.ok) throw new Error(json.erreur ?? "Envoi impossible.");
+          ajouter(json.chemin);
+          envoyees++;
+        } catch (e) {
+          erreurs.push(`${fichier.name} : ${e instanceof Error ? e.message : "échec de l'envoi"}`);
+        }
+      }
+      boutonsEnvoi.forEach((b) => (b.disabled = false));
+      etat.textContent = erreurs.length
+        ? erreurs.join(" ")
+        : `${envoyees} photo${envoyees > 1 ? "s ajoutées" : " ajoutée"}. Pensez à enregistrer.`;
+    });
+
+    actualiser();
+  }
+</script>

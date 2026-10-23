@@ -1,0 +1,54 @@
+---
+import type { IconeCategorie } from "../config/shopConfig";
+
+interface Props {
+  icone: IconeCategorie;
+  class?: string;
+}
+const { icone, class: classe = "h-12 w-12" } = Astro.props;
+---
+
+<svg
+  viewBox="0 0 64 64"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  class={classe}
+  aria-hidden="true"
+>
+  {
+    icone === "laptop" && (
+      <>
+        <rect x="12" y="14" width="40" height="28" rx="3" />
+        <path d="M6 48h52l-4 4H10z" />
+      </>
+    )
+  }
+  {
+    icone === "chromebook" && (
+      <>
+        <rect x="12" y="14" width="40" height="28" rx="3" />
+        <circle cx="32" cy="28" r="6" />
+        <path d="M8 48h48" />
+      </>
+    )
+  }
+  {
+    icone === "tablette" && (
+      <>
+        <rect x="16" y="8" width="32" height="48" rx="4" />
+        <circle cx="32" cy="50" r="1.5" />
+      </>
+    )
+  }
+  {
+    icone === "accessoire" && (
+      <>
+        <rect x="22" y="10" width="20" height="44" rx="10" />
+        <path d="M32 10v16M22 26h20" />
+      </>
+    )
+  }
+</svg>

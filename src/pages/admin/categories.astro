@@ -1,0 +1,137 @@
+---
+import LayoutAdmin from "../../layouts/LayoutAdmin.astro";
+import { texte, entier, slugifier, messageErreur } from "../../lib/admin";
+
+const supabase = Astro.locals.supabase;
+const ICONES = [
+  { cle: "chromebook", libelle: "Chromebook" },
+  { cle: "tablette", libelle: "Tablette" },
+  { cle: "laptop", libelle: "Ordinateur portable" },
+  { cle: "accessoire", libelle: "Accessoire" },
+];
+let erreur = "";
+
+if (Astro.request.method === "POST") {
+  const f = await Astro.request.formData();
+  const action = texte(f, "action");
+  const icone = ICONES.some((i) => i.cle === texte(f, "icone")) ? texte(f, "icone") : "laptop";
+
+  if (action === "ajouter") {
+    const nom = texte(f, "nom");
+    if (!nom) erreur = "Le nom de la catégorie est obligatoire.";
+    else {
+      const { error } = await supabase.from("categories").insert({
+        nom,
+        slug: slugifier(nom),
+        description: texte(f, "description"),
+        icone,
+        ordre: entier(f, "ordre"),
+        actif: true,
+      });
+      if (error) erreur = messageErreur(error);
+      else return Astro.redirect("/admin/categories?ok=1");
+    }
+  } else if (action === "enregistrer") {
+    const nom = texte(f, "nom");
+    if (!nom) erreur = "Le nom de la catégorie est obligatoire.";
+    else {
+      const { error } = await supabase
+        .from("categories")
+        .update({ nom, description: texte(f, "description"), icone, ordre: entier(f, "ordre"), actif: f.get("actif") === "on" })
+        .eq("id", texte(f, "id"));
+      if (error) erreur = messageErreur(error);
+      else return Astro.redirect("/admin/categories?ok=1");
+    }
+  } else if (action === "supprimer") {
+    const { error } = await supabase.from("categories").delete().eq("id", texte(f, "id"));
+    if (error)
+      erreur =
+        error.code === "23503"
+          ? "Cette catégorie contient encore des produits. Déplacez-les dans une autre catégorie, ou décochez « Visible »."
+          : messageErreur(error);
+    else return Astro.redirect("/admin/categories?ok=1");
+  }
+}
+
+const { data: categories } = await supabase.from("categories").select("*").order("ordre").order("nom");
+const { data: lignes } = await supabase.from("produits").select("categorie_id");
+const nombre = (id: string) => (lignes ?? []).filter((l) => l.categorie_id === id).length;
+---
+
+<LayoutAdmin titre="Catégories">
+  <h1 class="font-titre text-3xl font-extrabold">Catégories</h1>
+  <p class="mt-2 text-encre/70">Elles apparaissent sur l'accueil et dans les filtres de la boutique. L'ordre va du plus petit au plus grand numéro.</p>
+
+  {Astro.url.searchParams.get("ok") && <p role="status" class="mt-4 rounded-lg bg-emerald-50 p-3 font-semibold text-emerald-800">Modifications enregistrées.</p>}
+  {erreur && <p role="alert" class="mt-4 rounded-lg bg-red-50 p-3 font-semibold text-red-800">{erreur}</p>}
+
+  <ul class="mt-6 space-y-4">
+    {
+      (categories ?? []).map((c) => (
+        <li class="carte">
+          <form method="post" class="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+            <input type="hidden" name="id" value={c.id} />
+            <div>
+              <label class="etiquette">Nom</label>
+              <input name="nom" required value={c.nom} class="champ" />
+            </div>
+            <div>
+              <label class="etiquette">Icône</label>
+              <select name="icone" class="champ">
+                {ICONES.map((i) => <option value={i.cle} selected={i.cle === c.icone}>{i.libelle}</option>)}
+              </select>
+            </div>
+            <div>
+              <label class="etiquette">Ordre</label>
+              <input name="ordre" inputmode="numeric" value={c.ordre} class="champ md:w-24" />
+            </div>
+            <div class="md:col-span-3">
+              <label class="etiquette">Description courte</label>
+              <input name="description" value={c.description} class="champ" />
+            </div>
+            <div class="flex flex-wrap items-center gap-3 md:col-span-3">
+              <label class="flex items-center gap-2 font-bold">
+                <input type="checkbox" name="actif" checked={c.actif} class="h-5 w-5" /> Visible sur le site
+              </label>
+              <span class="text-sm text-encre/60">{nombre(c.id)} produit{nombre(c.id) > 1 ? "s" : ""}</span>
+              <button name="action" value="enregistrer" class="btn btn-marque ml-auto">Enregistrer</button>
+              <button
+                name="action"
+                value="supprimer"
+                class="btn btn-danger"
+                onclick="return confirm('Supprimer cette catégorie ?')"
+              >
+                Supprimer
+              </button>
+            </div>
+          </form>
+        </li>
+      ))
+    }
+  </ul>
+
+  <form method="post" class="carte mt-8 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+    <h2 class="font-titre text-xl font-bold md:col-span-3">Ajouter une catégorie</h2>
+    <div>
+      <label class="etiquette" for="nouveau-nom">Nom</label>
+      <input id="nouveau-nom" name="nom" required class="champ" placeholder="Imprimantes" />
+    </div>
+    <div>
+      <label class="etiquette" for="nouvelle-icone">Icône</label>
+      <select id="nouvelle-icone" name="icone" class="champ">
+        {ICONES.map((i) => <option value={i.cle}>{i.libelle}</option>)}
+      </select>
+    </div>
+    <div>
+      <label class="etiquette" for="nouvel-ordre">Ordre</label>
+      <input id="nouvel-ordre" name="ordre" inputmode="numeric" value="10" class="champ md:w-24" />
+    </div>
+    <div class="md:col-span-3">
+      <label class="etiquette" for="nouvelle-description">Description courte</label>
+      <input id="nouvelle-description" name="description" class="champ" />
+    </div>
+    <div class="md:col-span-3">
+      <button name="action" value="ajouter" class="btn btn-marque">Ajouter la catégorie</button>
+    </div>
+  </form>
+</LayoutAdmin>

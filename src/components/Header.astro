@@ -1,0 +1,76 @@
+---
+import { lienWhatsApp } from "../lib/produits";
+
+const boutique = Astro.locals.boutique;
+const { pathname } = Astro.url;
+const liens = [
+  { href: "/", libelle: "Accueil" },
+  { href: "/boutique", libelle: "Boutique" },
+  { href: "/contact", libelle: "Contact" },
+];
+const actif = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+const lienWa = lienWhatsApp(boutique.whatsapp.messageAccueil, boutique.whatsapp.numero);
+---
+
+<header class="sticky top-0 z-40 border-b border-encre/10 bg-white/95 backdrop-blur">
+  <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
+    <a href="/" class="font-titre text-xl font-extrabold tracking-tight text-marque">{boutique.nom}</a>
+
+    <nav class="hidden items-center gap-7 md:flex" aria-label="Navigation principale">
+      {
+        liens.map((l) => (
+          <a
+            href={l.href}
+            aria-current={actif(l.href) ? "page" : undefined}
+            class:list={[
+              "font-semibold transition-colors",
+              actif(l.href) ? "text-marque" : "text-encre/70 hover:text-marque",
+            ]}
+          >
+            {l.libelle}
+          </a>
+        ))
+      }
+      <a
+        href={lienWa}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="rounded-lg bg-whatsapp px-4 py-2 font-bold text-white transition-colors hover:bg-whatsapp-fonce"
+      >
+        WhatsApp
+      </a>
+    </nav>
+
+    <details class="relative md:hidden">
+      <summary
+        class="flex h-10 cursor-pointer list-none items-center rounded-lg border border-encre/15 px-4 font-semibold [&::-webkit-details-marker]:hidden"
+      >
+        Menu
+      </summary>
+      <nav class="absolute right-0 mt-2 w-56 rounded-xl border border-encre/10 bg-white p-2 shadow-lg" aria-label="Navigation mobile">
+        {
+          liens.map((l) => (
+            <a
+              href={l.href}
+              aria-current={actif(l.href) ? "page" : undefined}
+              class:list={[
+                "block rounded-lg px-3 py-3 font-semibold",
+                actif(l.href) ? "bg-marque/10 text-marque" : "text-encre/80",
+              ]}
+            >
+              {l.libelle}
+            </a>
+          ))
+        }
+        <a
+          href={lienWa}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="mt-1 block rounded-lg bg-whatsapp px-3 py-3 text-center font-bold text-white"
+        >
+          Écrire sur WhatsApp
+        </a>
+      </nav>
+    </details>
+  </div>
+</header>

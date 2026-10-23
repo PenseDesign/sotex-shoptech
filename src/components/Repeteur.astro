@@ -1,0 +1,37 @@
+---
+import LigneRepeteur, { type Champ } from "./LigneRepeteur.astro";
+
+interface Props {
+  groupe: string;
+  champs: Champ[];
+  lignes: Record<string, string>[];
+  ajout?: string;
+}
+const { groupe, champs, lignes, ajout = "Ajouter une ligne" } = Astro.props;
+---
+
+<div data-repeteur class="space-y-3">
+  <div data-lignes class="space-y-3">
+    {lignes.map((l) => <LigneRepeteur groupe={groupe} champs={champs} valeurs={l} />)}
+  </div>
+  <template data-modele>
+    <LigneRepeteur groupe={groupe} champs={champs} />
+  </template>
+  <button type="button" data-ajouter class="btn btn-clair">+ {ajout}</button>
+</div>
+
+<script>
+  document.querySelectorAll<HTMLElement>("[data-repeteur]").forEach((zone) => {
+    const conteneur = zone.querySelector<HTMLElement>("[data-lignes]");
+    const modele = zone.querySelector<HTMLTemplateElement>("template[data-modele]");
+    if (!conteneur || !modele) return;
+    zone.addEventListener("click", (e) => {
+      const cible = e.target as HTMLElement;
+      if (cible.closest("[data-ajouter]")) {
+        conteneur.appendChild(modele.content.cloneNode(true));
+        conteneur.lastElementChild?.querySelector<HTMLElement>("input, textarea")?.focus();
+      }
+      if (cible.closest("[data-retirer]")) cible.closest("[data-ligne]")?.remove();
+    });
+  });
+</script>

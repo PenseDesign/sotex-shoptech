@@ -1,0 +1,31 @@
+---
+export interface Champ {
+  cle: string;
+  libelle: string;
+  long?: boolean;
+}
+interface Props {
+  groupe: string;
+  champs: Champ[];
+  valeurs?: Record<string, string>;
+}
+const { groupe, champs, valeurs = {} } = Astro.props;
+---
+
+<div data-ligne class="flex items-start gap-2 rounded-xl border border-encre/10 bg-papier p-3">
+  <div class="grid flex-1 gap-2 sm:grid-cols-2">
+    {
+      champs.map((c) => (
+        <div class:list={[c.long && "sm:col-span-2"]}>
+          <label class="sr-only">{c.libelle}</label>
+          {c.long ? (
+            <textarea name={`${groupe}__${c.cle}`} rows="2" placeholder={c.libelle} class="champ">{valeurs[c.cle] ?? ""}</textarea>
+          ) : (
+            <input name={`${groupe}__${c.cle}`} value={valeurs[c.cle] ?? ""} placeholder={c.libelle} class="champ" />
+          )}
+        </div>
+      ))
+    }
+  </div>
+  <button type="button" data-retirer class="btn btn-danger px-3" aria-label="Retirer cette ligne">Retirer</button>
+</div>

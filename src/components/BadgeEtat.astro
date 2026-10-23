@@ -1,0 +1,12 @@
+---
+import { ETATS, type EtatProduit } from "../lib/produits";
+
+interface Props {
+  etat: EtatProduit;
+  class?: string;
+}
+const { etat, class: classe = "" } = Astro.props;
+const e = ETATS[etat];
+---
+
+<span class:list={["inline-block rounded-full px-3 py-1 text-sm font-bold", e.classes, classe]}>{e.libelle}</span>

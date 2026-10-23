@@ -1,0 +1,46 @@
+---
+import LayoutAdmin from "../../layouts/LayoutAdmin.astro";
+
+if (Astro.locals.user) return Astro.redirect("/admin");
+
+const boutique = Astro.locals.boutique;
+let erreur = "";
+let email = "";
+
+if (Astro.request.method === "POST") {
+  const f = await Astro.request.formData();
+  email = String(f.get("email") ?? "").trim();
+  const motDePasse = String(f.get("mot_de_passe") ?? "");
+  const supabase = Astro.locals.supabase;
+
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password: motDePasse });
+  if (error || !data.user) {
+    erreur = "E-mail ou mot de passe incorrect.";
+  } else {
+    const { data: admin } = await supabase.from("admins").select("user_id").eq("user_id", data.user.id).maybeSingle();
+    if (admin) return Astro.redirect("/admin");
+    await supabase.auth.signOut();
+    erreur = "Ce compte n'a pas accès à l'administration.";
+  }
+}
+---
+
+<LayoutAdmin titre="Connexion" sansMenu>
+  <div class="mx-auto mt-10 max-w-md">
+    <h1 class="font-titre text-3xl font-extrabold">Connexion</h1>
+    <p class="mt-2 text-encre/70">Espace réservé au gestionnaire de {boutique.nom}.</p>
+
+    <form method="post" class="carte mt-6 space-y-4">
+      {erreur && <p role="alert" class="rounded-lg bg-red-50 p-3 font-semibold text-red-800">{erreur}</p>}
+      <div>
+        <label class="etiquette" for="email">Adresse e-mail</label>
+        <input id="email" name="email" type="email" required autocomplete="username" value={email} class="champ" />
+      </div>
+      <div>
+        <label class="etiquette" for="mot_de_passe">Mot de passe</label>
+        <input id="mot_de_passe" name="mot_de_passe" type="password" required autocomplete="current-password" class="champ" />
+      </div>
+      <button class="btn btn-marque w-full">Se connecter</button>
+    </form>
+  </div>
+</LayoutAdmin>

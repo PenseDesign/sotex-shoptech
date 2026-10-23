@@ -1,0 +1,88 @@
+---
+import Layout from "../layouts/Layout.astro";
+import CarteProduit from "../components/CarteProduit.astro";
+import { chargerProduitsPublics, disponibilite } from "../lib/produits";
+
+const boutique = Astro.locals.boutique;
+const produits = (await chargerProduitsPublics(Astro.locals.db)).filter((p) => disponibilite(p).enStock);
+const total = produits.length;
+const categories = boutique.categories.map((c) => ({
+  ...c,
+  nombre: produits.filter((p) => p.categorie === c.slug).length,
+}));
+const classeFiltre =
+  "rounded-full border border-encre/15 bg-white px-4 py-2 text-sm font-bold transition-colors hover:border-marque aria-pressed:border-marque aria-pressed:bg-marque aria-pressed:text-white";
+---
+
+<Layout
+  titre="Boutique"
+  description={`Les ${total} appareils disponibles chez ${boutique.nom} : Chromebooks, tablettes éducatives, laptops d'occasion d'Europe et accessoires.`}
+>
+  <section class="border-b border-encre/10 bg-white">
+    <div class="mx-auto max-w-6xl px-4 py-10">
+      <h1 class="font-titre text-4xl font-extrabold tracking-tight">La boutique</h1>
+      <p class="mt-3 text-lg text-encre/80">
+        <strong class="text-marque">{total} appareils</strong> disponibles à Douala-Yassa, contrôlés et garantis.
+      </p>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 py-8">
+    <div id="filtres" role="group" aria-label="Filtrer par catégorie" class="flex flex-wrap gap-2">
+      <button type="button" data-filtre="tous" aria-pressed="true" class={classeFiltre}>Tout ({total})</button>
+      {
+        categories.map((c) => (
+          <button type="button" data-filtre={c.slug} aria-pressed="false" class={classeFiltre}>
+            {c.nom} ({c.nombre})
+          </button>
+        ))
+      }
+    </div>
+
+    <p id="compteur" aria-live="polite" class="mt-5 text-sm font-semibold text-encre/70">
+      {total} appareils affichés
+    </p>
+
+    <ul class="mt-4 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {
+        produits.map((p) => (
+          <li data-categorie={p.categorie}>
+            <CarteProduit produit={p} />
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+</Layout>
+
+<script>
+  // Filtre léger (≈ 25 lignes, sans bibliothèque). Sans JavaScript, tous les produits restent visibles.
+  const boutons = document.querySelectorAll<HTMLButtonElement>("[data-filtre]");
+  const cartes = document.querySelectorAll<HTMLElement>("[data-categorie]");
+  const compteur = document.getElementById("compteur");
+  const valides = new Set(Array.from(boutons, (b) => b.dataset.filtre));
+
+  function appliquer(slug: string) {
+    let visibles = 0;
+    cartes.forEach((c) => {
+      const afficher = slug === "tous" || c.dataset.categorie === slug;
+      c.hidden = !afficher;
+      if (afficher) visibles++;
+    });
+    boutons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.filtre === slug)));
+    if (compteur) {
+      const s = visibles > 1 ? "s" : "";
+      compteur.textContent = `${visibles} appareil${s} affiché${s}`;
+    }
+    const url = new URL(window.location.href);
+    if (slug === "tous") url.searchParams.delete("categorie");
+    else url.searchParams.set("categorie", slug);
+    history.replaceState(null, "", url);
+  }
+
+  boutons.forEach((b) => b.addEventListener("click", () => appliquer(b.dataset.filtre ?? "tous")));
+
+  // Les tuiles de la page d'accueil pointent vers /boutique?categorie=…
+  const initial = new URLSearchParams(window.location.search).get("categorie");
+  if (initial && valides.has(initial)) appliquer(initial);
+</script>

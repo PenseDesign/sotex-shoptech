@@ -1,0 +1,183 @@
+---
+import LayoutAdmin from "../../layouts/LayoutAdmin.astro";
+import Repeteur from "../../components/Repeteur.astro";
+import { texte, entier, lireRepeteur, messageErreur } from "../../lib/admin";
+
+const supabase = Astro.locals.supabase;
+let b = Astro.locals.boutique;
+let erreur = "";
+
+if (Astro.request.method === "POST") {
+  const f = await Astro.request.formData();
+  const numero = texte(f, "whatsapp_numero").replace(/\D/g, "");
+  const couleur = (nom: string, defaut: string) => (/^#[0-9a-fA-F]{6}$/.test(texte(f, nom)) ? texte(f, nom) : defaut);
+
+  if (!texte(f, "nom")) erreur = "Le nom de la boutique est obligatoire.";
+  else if (numero.length < 8 || numero.length > 15)
+    erreur = "Le numéro WhatsApp doit contenir l'indicatif du pays, par exemple 237690000000.";
+  else {
+    const { error } = await supabase.from("reglages").upsert({
+      id: 1,
+      nom: texte(f, "nom"),
+      slogan: texte(f, "slogan"),
+      description: texte(f, "description"),
+      couleur_marque: couleur("couleur_marque", b.couleurs.marque),
+      couleur_marque_fonce: couleur("couleur_marque_fonce", b.couleurs.marqueFonce),
+      couleur_accent: couleur("couleur_accent", b.couleurs.accent),
+      whatsapp_numero: numero,
+      whatsapp_affiche: texte(f, "whatsapp_affiche") || `+${numero}`,
+      whatsapp_message: texte(f, "whatsapp_message"),
+      email: texte(f, "email"),
+      garantie_jours: Math.max(0, entier(f, "garantie_jours")),
+      adresse_ligne1: texte(f, "adresse_ligne1"),
+      adresse_ville: texte(f, "adresse_ville"),
+      adresse_pays: texte(f, "adresse_pays"),
+      adresse_repere: texte(f, "adresse_repere"),
+      lien_carte: texte(f, "lien_carte"),
+      horaires: lireRepeteur(f, "horaires", ["jours", "heures"]),
+      controle: lireRepeteur(f, "controle", ["point", "resultat"]),
+      livraison: lireRepeteur(f, "livraison", ["titre", "zone", "delai", "detail", "paiement"]),
+      faq: lireRepeteur(f, "faq", ["question", "reponse"]),
+    });
+    if (error) erreur = messageErreur(error);
+    else return Astro.redirect("/admin/reglages?ok=1");
+  }
+}
+---
+
+<LayoutAdmin titre="Réglages">
+  <h1 class="font-titre text-3xl font-extrabold">Réglages de la boutique</h1>
+  <p class="mt-2 text-encre/70">Tout ce qui s'affiche sur le site : coordonnées, horaires, livraison, questions fréquentes.</p>
+
+  {Astro.url.searchParams.get("ok") && <p role="status" class="mt-4 rounded-lg bg-emerald-50 p-3 font-semibold text-emerald-800">Réglages enregistrés.</p>}
+  {erreur && <p role="alert" class="mt-4 rounded-lg bg-red-50 p-3 font-semibold text-red-800">{erreur}</p>}
+
+  <form method="post" class="mt-6 space-y-6">
+    <section class="carte space-y-4" aria-labelledby="r-identite">
+      <h2 id="r-identite" class="font-titre text-xl font-bold">Identité</h2>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label class="etiquette" for="nom">Nom de la boutique *</label>
+          <input id="nom" name="nom" required value={b.nom} class="champ" />
+        </div>
+        <div>
+          <label class="etiquette" for="slogan">Slogan</label>
+          <input id="slogan" name="slogan" value={b.slogan} class="champ" />
+        </div>
+        <div class="sm:col-span-2">
+          <label class="etiquette" for="description">Description (pour Google et les partages)</label>
+          <textarea id="description" name="description" rows="2" class="champ">{b.description}</textarea>
+        </div>
+        <div>
+          <label class="etiquette" for="couleur_marque">Couleur principale</label>
+          <input id="couleur_marque" name="couleur_marque" type="color" value={b.couleurs.marque} class="h-12 w-full rounded-lg border border-encre/25 bg-white p-1" />
+        </div>
+        <div>
+          <label class="etiquette" for="couleur_marque_fonce">Couleur principale foncée (survol)</label>
+          <input id="couleur_marque_fonce" name="couleur_marque_fonce" type="color" value={b.couleurs.marqueFonce} class="h-12 w-full rounded-lg border border-encre/25 bg-white p-1" />
+        </div>
+        <div>
+          <label class="etiquette" for="couleur_accent">Couleur d'accent</label>
+          <input id="couleur_accent" name="couleur_accent" type="color" value={b.couleurs.accent} class="h-12 w-full rounded-lg border border-encre/25 bg-white p-1" />
+        </div>
+        <div>
+          <label class="etiquette" for="garantie_jours">Garantie (jours)</label>
+          <input id="garantie_jours" name="garantie_jours" inputmode="numeric" value={b.garantieJours} class="champ" />
+        </div>
+      </div>
+    </section>
+
+    <section class="carte space-y-4" aria-labelledby="r-contact">
+      <h2 id="r-contact" class="font-titre text-xl font-bold">WhatsApp et contact</h2>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label class="etiquette" for="whatsapp_numero">Numéro WhatsApp (avec indicatif) *</label>
+          <input id="whatsapp_numero" name="whatsapp_numero" required inputmode="numeric" value={b.whatsapp.numero} class="champ" />
+          <p class="aide">Chiffres seulement, sans + ni espaces. Exemple : 237690000000</p>
+        </div>
+        <div>
+          <label class="etiquette" for="whatsapp_affiche">Numéro tel qu'affiché sur le site</label>
+          <input id="whatsapp_affiche" name="whatsapp_affiche" value={b.whatsapp.numeroAffiche} class="champ" />
+        </div>
+        <div class="sm:col-span-2">
+          <label class="etiquette" for="whatsapp_message">Message pré-rempli (boutons WhatsApp généraux)</label>
+          <input id="whatsapp_message" name="whatsapp_message" value={b.whatsapp.messageAccueil} class="champ" />
+        </div>
+        <div class="sm:col-span-2">
+          <label class="etiquette" for="email">Adresse e-mail (facultatif)</label>
+          <input id="email" name="email" type="email" value={b.email} class="champ" />
+        </div>
+      </div>
+    </section>
+
+    <section class="carte space-y-4" aria-labelledby="r-adresse">
+      <h2 id="r-adresse" class="font-titre text-xl font-bold">Adresse de la boutique</h2>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div class="sm:col-span-2">
+          <label class="etiquette" for="adresse_ligne1">Adresse</label>
+          <input id="adresse_ligne1" name="adresse_ligne1" value={b.adresse.ligne1} class="champ" />
+        </div>
+        <div>
+          <label class="etiquette" for="adresse_ville">Ville</label>
+          <input id="adresse_ville" name="adresse_ville" value={b.adresse.ville} class="champ" />
+        </div>
+        <div>
+          <label class="etiquette" for="adresse_pays">Pays</label>
+          <input id="adresse_pays" name="adresse_pays" value={b.adresse.pays} class="champ" />
+        </div>
+        <div class="sm:col-span-2">
+          <label class="etiquette" for="adresse_repere">Repère pour trouver la boutique</label>
+          <input id="adresse_repere" name="adresse_repere" value={b.adresse.repere} class="champ" />
+        </div>
+        <div class="sm:col-span-2">
+          <label class="etiquette" for="lien_carte">Lien Google Maps</label>
+          <input id="lien_carte" name="lien_carte" type="url" value={b.adresse.lienCarte} class="champ" />
+          <p class="aide">Dans Google Maps : ouvrez la boutique, touchez « Partager », copiez le lien.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="carte" aria-labelledby="r-horaires">
+      <h2 id="r-horaires" class="font-titre text-xl font-bold">Horaires de retrait</h2>
+      <div class="mt-3">
+        <Repeteur groupe="horaires" champs={[{ cle: "jours", libelle: "Jours (ex. Lundi – Vendredi)" }, { cle: "heures", libelle: "Heures (ex. 08h00 – 18h00)" }]} lignes={b.horaires} ajout="Ajouter un horaire" />
+      </div>
+    </section>
+
+    <section class="carte" aria-labelledby="r-livraison">
+      <h2 id="r-livraison" class="font-titre text-xl font-bold">Modes de livraison</h2>
+      <div class="mt-3">
+        <Repeteur
+          groupe="livraison"
+          champs={[
+            { cle: "titre", libelle: "Mode (ex. Coursier à domicile)" },
+            { cle: "zone", libelle: "Zone (ex. Douala)" },
+            { cle: "delai", libelle: "Délai" },
+            { cle: "detail", libelle: "Explication", long: true },
+            { cle: "paiement", libelle: "Comment se passe le paiement", long: true },
+          ]}
+          lignes={b.livraison.map((l) => ({ ...l }))}
+          ajout="Ajouter un mode de livraison"
+        />
+      </div>
+    </section>
+
+    <section class="carte" aria-labelledby="r-faq">
+      <h2 id="r-faq" class="font-titre text-xl font-bold">Questions fréquentes</h2>
+      <div class="mt-3">
+        <Repeteur groupe="faq" champs={[{ cle: "question", libelle: "Question", long: true }, { cle: "reponse", libelle: "Réponse", long: true }]} lignes={b.faq} ajout="Ajouter une question" />
+      </div>
+    </section>
+
+    <section class="carte" aria-labelledby="r-controle">
+      <h2 id="r-controle" class="font-titre text-xl font-bold">Contrôle avant mise en vente (carte de l'accueil)</h2>
+      <div class="mt-3">
+        <Repeteur groupe="controle" champs={[{ cle: "point", libelle: "Vérification (ex. Batterie)" }, { cle: "resultat", libelle: "Résultat (ex. Santé mesurée)" }]} lignes={b.controle} ajout="Ajouter une vérification" />
+      </div>
+    </section>
+
+    <div class="sticky bottom-0 -mx-4 border-t border-encre/10 bg-papier/95 px-4 py-3 backdrop-blur">
+      <button class="btn btn-marque w-full sm:w-auto">Enregistrer les réglages</button>
+    </div>
+  </form>
+</LayoutAdmin>

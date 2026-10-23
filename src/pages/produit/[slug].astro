@@ -1,0 +1,171 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import GaleriePhotos from "../../components/GaleriePhotos.astro";
+import BadgeEtat from "../../components/BadgeEtat.astro";
+import BoutonWhatsApp from "../../components/BoutonWhatsApp.astro";
+import CarteProduit from "../../components/CarteProduit.astro";
+import {
+  ETATS,
+  chargerProduitsPublics,
+  chargerProduitParSlug,
+  formaterPrix,
+  disponibilite,
+  lienWhatsApp,
+  messageCommande,
+} from "../../lib/produits";
+
+const boutique = Astro.locals.boutique;
+const db = Astro.locals.db;
+const produit = await chargerProduitParSlug(db, Astro.params.slug ?? "");
+if (!produit) {
+  return Astro.rewrite("/404");
+}
+
+const urlPage = Astro.url.origin + Astro.url.pathname;
+const lienCommande = lienWhatsApp(messageCommande(produit, urlPage, boutique.nom), boutique.whatsapp.numero);
+const dispo = disponibilite(produit);
+const etat = ETATS[produit.etat];
+const libelleBouton = dispo.enStock ? "Commander via WhatsApp" : "Demander la disponibilité sur WhatsApp";
+
+const similaires = (await chargerProduitsPublics(db))
+  .filter((p) => p.slug !== produit.slug && disponibilite(p).enStock)
+  .sort((a, b) => Number(b.categorie === produit.categorie) - Number(a.categorie === produit.categorie))
+  .slice(0, 4);
+
+const schemaProduit = {
+  "@context": "https://schema.org",
+  "@type": "Product",
+  name: produit.nom,
+  sku: produit.reference,
+  description: produit.description,
+  brand: { "@type": "Brand", name: produit.marque },
+  ...(produit.images[0] ? { image: produit.images[0] } : {}),
+  offers: {
+    "@type": "Offer",
+    url: urlPage,
+    price: produit.prix,
+    priceCurrency: "XAF",
+    itemCondition: etat.schema,
+    availability: dispo.enStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+  },
+};
+---
+
+<Layout titre={produit.nom} description={`${produit.nom} à ${formaterPrix(produit.prix)} : ${produit.resume}. ${etat.libelle}.`} barreFixe>
+  <script type="application/ld+json" slot="head" set:html={JSON.stringify(schemaProduit)} />
+
+  <div class="mx-auto max-w-6xl px-4 pt-6">
+    <nav aria-label="Fil d'Ariane" class="text-sm text-encre/60">
+      <a href="/" class="hover:text-marque">Accueil</a> /
+      <a href="/boutique" class="hover:text-marque">Boutique</a> /
+      <a href={`/boutique?categorie=${produit.categorie}`} class="hover:text-marque">{produit.categorieNom}</a>
+    </nav>
+  </div>
+
+  <article class="mx-auto grid max-w-6xl gap-8 px-4 py-6 lg:grid-cols-2 lg:gap-12">
+    <!-- Photo -->
+    <div class="lg:sticky lg:top-24 lg:self-start">
+      <GaleriePhotos produit={produit} />
+    </div>
+
+    <!-- Détails -->
+    <div class="lg:sticky lg:top-24 lg:self-start">
+      <BadgeEtat etat={produit.etat} />
+      <h1 class="mt-3 font-titre text-3xl font-extrabold leading-tight tracking-tight md:text-4xl">{produit.nom}</h1>
+      <p class="mt-2 text-encre/70">{produit.resume}</p>
+
+      <div class="mt-6">
+        <p class="text-sm font-semibold text-encre/60">Prix cash</p>
+        <p class="font-titre text-5xl font-extrabold tracking-tight text-marque md:text-6xl">{formaterPrix(produit.prix)}</p>
+      </div>
+
+      <p class:list={["mt-4 flex items-center gap-2 font-bold", dispo.classe]}>
+        <span class="inline-block h-3 w-3 rounded-full bg-current" aria-hidden="true"></span>
+        {dispo.libelle}
+      </p>
+
+      <div class="mt-6 hidden lg:block">
+        <BoutonWhatsApp href={lienCommande} libelle={libelleBouton} grand />
+      </div>
+      <p class="mt-3 text-sm font-semibold text-encre/80">
+        Paiement à la livraison après vérification visuelle et technique de l'appareil
+      </p>
+      <p class="mt-1 text-sm text-encre/60">Garanti {boutique.garantieJours} jours. Contrôlé avant mise en vente.</p>
+
+      <ul class="mt-6 space-y-2">
+        {
+          produit.pointsForts.map((point) => (
+            <li class="flex gap-3">
+              <svg viewBox="0 0 24 24" class="mt-1 h-5 w-5 shrink-0 text-whatsapp" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 12.5l4.5 4.5L19 7.5" />
+              </svg>
+              <span>{point}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </article>
+
+  <!-- Fiche technique -->
+  <section class="mx-auto max-w-6xl px-4 pt-6" aria-labelledby="titre-fiche">
+    <div class="grid gap-8 lg:grid-cols-2 lg:gap-12">
+      <div>
+        <h2 id="titre-fiche" class="font-titre text-2xl font-extrabold">Fiche technique</h2>
+        <table class="mt-4 w-full overflow-hidden rounded-2xl border border-encre/10 bg-white text-left">
+          <tbody class="divide-y divide-encre/10">
+            <tr>
+              <th scope="row" class="w-2/5 bg-papier px-4 py-3 font-semibold">État</th>
+              <td class="px-4 py-3">{etat.libelle}</td>
+            </tr>
+            <tr>
+              <th scope="row" class="bg-papier px-4 py-3 font-semibold">Marque</th>
+              <td class="px-4 py-3">{produit.marque}</td>
+            </tr>
+            {
+              Object.entries(produit.caracteristiques).map(([nom, valeur]) => (
+                <tr>
+                  <th scope="row" class="bg-papier px-4 py-3 font-semibold">{nom}</th>
+                  <td class="px-4 py-3">{valeur}</td>
+                </tr>
+              ))
+            }
+            <tr>
+              <th scope="row" class="bg-papier px-4 py-3 font-semibold">Garantie</th>
+              <td class="px-4 py-3">{boutique.garantieJours} jours</td>
+            </tr>
+            <tr>
+              <th scope="row" class="bg-papier px-4 py-3 font-semibold">Référence</th>
+              <td class="px-4 py-3">{produit.reference}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div>
+        <h2 class="font-titre text-2xl font-extrabold">À propos de cet appareil</h2>
+        <p class="mt-4 max-w-prose text-lg leading-relaxed text-encre/85">{produit.description}</p>
+        <div class="mt-6 rounded-2xl border border-encre/10 bg-white p-5">
+          <h3 class="font-titre text-lg font-bold">Où le récupérer ?</h3>
+          <p class="mt-2 text-encre/80">
+            Disponible à Douala-Yassa, ou livré par coursier à Douala et Yaoundé. Pour les autres villes, envoi par agence de voyages.
+          </p>
+          <a href="/contact" class="mt-3 inline-block font-bold text-marque underline underline-offset-4">Voir les modes de livraison</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Autres appareils -->
+  <section class="mx-auto max-w-6xl px-4 pt-14" aria-labelledby="titre-similaires">
+    <h2 id="titre-similaires" class="font-titre text-2xl font-extrabold">Vous pourriez aussi aimer</h2>
+    <div class="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      {similaires.map((p) => <CarteProduit produit={p} />)}
+    </div>
+  </section>
+
+  <!-- Barre WhatsApp persistante (mobile) -->
+  <div class="fixed inset-x-0 bottom-0 z-30 border-t border-encre/10 bg-white p-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)] lg:hidden">
+    <BoutonWhatsApp href={lienCommande} libelle={libelleBouton} grand />
+  </div>
+</Layout>
