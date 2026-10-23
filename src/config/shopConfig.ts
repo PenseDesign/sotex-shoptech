@@ -29,6 +29,8 @@ export const boutiqueParDefaut = {
   description:
     "Chromebooks, tablettes éducatives et laptops d'occasion importés d'Europe, contrôlés avant la vente. Retrait à Douala-Yassa, livraison partout au Cameroun, paiement après vérification.",
 
+  logo: "",
+
   couleurs: {
     marque: "#1E3A8A",
     marqueFonce: "#142A66",

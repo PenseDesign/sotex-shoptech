@@ -5,6 +5,7 @@ export interface Boutique {
   nom: string;
   slogan: string;
   description: string;
+  logo?: string;
   couleurs: { marque: string; marqueFonce: string; accent: string };
   whatsapp: { numero: string; numeroAffiche: string; messageAccueil: string };
   email: string;
